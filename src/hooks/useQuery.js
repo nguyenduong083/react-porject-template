@@ -16,42 +16,53 @@ export const useQuery = (options = {}) => {
         cacheTime,
         storeDriver = 'localStorage' } = options
     const cache = _cache[storeDriver]
+    const refetchRef = useRef()
 
-    const fetchTimes = useRef(0)
-    const [data, setData] = useState(() => {
-        if (queryKey) {
-            return cache.get(queryKey)
-        }
-    })
-    const [loading, setLoading] = useState(false)
+    const [data, setData] = useState()
+    const [loading, setLoading] = useState(true)
     const [error, setError] = useState()
     const [status, setStatus] = useState('idle')
-
     useEffect(() => {
-        if (enabled && !data) {
-            fetchData()
-        }
-    }, [])
-
-    useEffect(() => {
-        if (enabled && fetchTimes.current > 1) {
-            fetchData()
+        if(typeof refetchRef.current === 'boolean') {
+            refetchRef.current = true
         }
     }, dependencyList)
 
+    useEffect(() => {
+        if (enabled) {
+            fetchData()
+        }
+    }, [queryKey, enabled].concat(...dependencyList))
 
     const fetchData = async () => {
-        fetchTimes.current++
         try {
             setLoading(true)
             setStatus('pending')
-            const res = await queryFn()
-            setData(res.data)
-            setStatus('success')
 
-            if (queryKey && cacheTime) {
-                cache.set(queryKey, res.data, Date.now() + cacheTime)
+            let res
+            // Kiểm tra cache xem có dữ liệu hay không
+            if (queryKey && !refetchRef.current) {
+                res = cache.get(queryKey)
             }
+
+            if (!res) {
+                res = await queryFn()
+            }
+
+            setStatus('success')
+            setData(res)
+
+
+            // update lại thời gian expired trong trường hợp cache đã tồn tại
+            if (queryKey) {
+                let expired = cacheTime
+                if (cacheTime) {
+                    expired += Date.now()
+                }
+                cache.set(queryKey, res, expired)
+            }
+
+            refetchRef.current = false
         } catch (err) {
             setError(err)
             setStatus('error')
